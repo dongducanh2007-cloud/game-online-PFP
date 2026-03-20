@@ -1,150 +1,166 @@
-# 🟥🟧🟨🟩🟦 BLOCKBLAST — Multiplayer
+# 🟥🟧🟨 BlockBlast Multiplayer
 
-> **Real-time 2-player puzzle battle** — place blocks, clear lines, outlast your opponent.
-
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python)
-![Flask](https://img.shields.io/badge/Flask-SocketIO-black?style=flat-square&logo=flask)
-![Vanilla JS](https://img.shields.io/badge/Frontend-Vanilla%20JS-yellow?style=flat-square&logo=javascript)
-![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
+A real-time 2-player block puzzle game inspired by Block Blast.  
+Each player has their own board and races to score the most points before the 5-minute timer runs out.
 
 ---
 
-## 📸 Overview
-
-BlockBlast Multiplayer is a browser-based, self-hosted two-player puzzle game. Each player gets their own 10×10 grid and a tray of 3 random pieces. Place pieces to fill rows and columns — clearing them earns points. Watch your opponent's board update live in a split-screen mirror. The player with the highest score when the timer runs out wins.
-
----
-
-## ✨ Features
-
-- 🎮 **Real-time split-screen** — your board on the left, opponent's live mirror on the right
-- ⏱️ **5-minute timed matches** with a countdown HUD
-- ❤️ **Lives system** — 3 lives per player; spend one to rescue yourself when stuck (clear a row or column)
-- 💀 **Elimination** — run out of lives with no valid moves and you're out; if both players are eliminated, the game ends instantly
-- 🔄 **Rematch system** — request and accept rematches without leaving the room
-- 🏠 **Room codes** — create a 6-character room code and share it with your friend
-- 📊 **Live score, combo & lines-cleared tracking**
-- 📱 **LAN / Hotspot play** — works over local Wi-Fi or a phone hotspot
-
----
-
-## 🗂️ Project Structure
+## 📁 Project Structure
 
 ```
-blockblast/
-├── server.py        # Flask + Flask-SocketIO backend
+blockblast_multiplayer/
+├── server.py              # Flask + SocketIO backend
+├── requirements.txt       # Python dependencies
 ├── templates/
-│   └── index.html   # Game UI (lobby, waiting room, game screen)
+│   └── index.html         # Game UI (lobby, waiting room, game screen)
 └── static/
-    ├── game.js      # Game engine + Socket.IO client
-    └── style.css    # Dark sci-fi theme (Orbitron + Rajdhani)
+    ├── game.js            # All game logic (board, pieces, lives, rescue, networking)
+    └── style.css          # Dark arcade theme
 ```
 
 ---
 
-## 🚀 Getting Started
+## ⚙️ Installation
 
-### 1. Install dependencies
+### 1. Install Python dependencies
 
 ```bash
-pip install flask flask-socketio
+pip install flask flask-socketio simple-websocket
 ```
 
 ### 2. Run the server
 
 ```bash
+cd blockblast_multiplayer
 python server.py
 ```
 
-The server starts at `http://0.0.0.0:5001` — accessible from any device on your network.
-
-### 3. Open in browser
-
-- **You (host):** `http://localhost:5001`
-- **Friend (same network):** `http://<your-local-ip>:5001`
-
-> Find your local IP with `ipconfig` (Windows) or `ifconfig` / `ip a` (Mac/Linux).  
-> Look for an address like `192.168.x.x` or `172.20.10.x`.
-
----
-
-## 🌐 Playing Over a Phone Hotspot
-
-If you don't share a Wi-Fi router, you can use your phone's mobile hotspot:
-
-1. Enable **Mobile Hotspot** on your phone
-2. Connect **both your PC and your friend's device** to the hotspot
-3. Your IP will typically be `172.20.10.2`
-4. Your friend opens `http://172.20.10.2:5001`
-
----
-
-## 🔥 Windows Firewall (important for LAN play)
-
-If your friend can't connect, Windows Firewall is likely blocking port 5001. Run this in **CMD as Administrator**:
-
-```bat
-netsh advfirewall firewall add rule name="BlockBlast" dir=in action=allow protocol=TCP localport=5001
+You should see:
 ```
+==================================================
+  BlockBlast Multiplayer Server
+  http://localhost:5001
+  (share your LAN IP for Player 2)
+==================================================
+```
+
+---
+
+## 🌐 How Two Players Connect
+
+**Player 1 (host machine):**
+```
+http://localhost:5001
+```
+
+**Player 2 (different computer, same Wi-Fi network):**
+
+First find the host's local IP address.
+
+- **Windows:** open PowerShell and run `ipconfig` — look for **IPv4 Address** under Wi-Fi
+- **Mac/Linux:** run `ifconfig` or `ip a` — look for something like `192.168.x.x`
+
+Then Player 2 opens:
+```
+http://192.168.x.x:5001
+```
+
+> ⚠️ Both computers must be on the **same local network** (same Wi-Fi or router).  
+> Do **not** open the HTML file directly — always go through `http://localhost:5001`.
 
 ---
 
 ## 🎮 How to Play
 
-1. **Host** enters a name and clicks **Create Room** → gets a 6-character room code
-2. **Guest** enters their name + the room code and clicks **Join**
-3. Host clicks **▶ Start Game**
-4. Place pieces by clicking a piece in the tray, then clicking the board
-5. Fill a full row or column to clear it and earn points
-6. If you run out of valid moves, you enter **Rescue Mode** — click a row or column to clear it (costs 1 life ❤️)
-7. Run out of lives → **eliminated 💀**
-8. Game ends when the **5-minute timer** hits zero, or **both players are eliminated**
-9. Highest score wins — request a **rematch** to play again!
+### Lobby
+1. Enter your name
+2. **Player 1** clicks **Create Room** → receives a 6-character room code
+3. **Player 2** enters the room code and clicks **Join**
+4. Once both players are connected, **Player 1** clicks **▶ Start Game**
+
+### Gameplay
+| Action | How |
+|--------|-----|
+| Select a piece | Click one of the 3 pieces in the **NEXT PIECES** tray |
+| Preview placement | Hover your mouse over the board — ghost piece appears |
+| Place a piece | Click the board where you want to drop it |
+| Clear lines | Fill a complete **row** or **column** — it clears automatically |
+| Score points | Placement = 1pt per cell · Line clear = 10 × grid size × combo |
+| Combo bonus | Clear lines on consecutive moves to multiply your score |
+
+### Timer
+- Both players share a synchronized **5-minute countdown**
+- When time reaches 0, scores are compared and the winner is announced
+- The timer turns **red** and pulses when under 30 seconds
 
 ---
 
-## 🧮 Scoring
+## ❤️ Lives & Rescue System
 
-| Action | Points |
-|---|---|
+Each player starts with **3 lives** (shown as ♥♥♥ in the HUD).
+
+### When you run out of moves:
+1. A **"⚠️ NO MOVES LEFT!"** panel appears over your board
+2. Choose **CLEAR ROW** or **CLEAR COL** using the buttons
+3. Hover over the board — the row or column highlights in red
+4. **Click** to clear it → costs **1 life** → you get **3 fresh pieces**
+5. Play resumes automatically
+
+### Elimination:
+- If you are stuck and have **0 lives** → you are **eliminated** (💀)
+- If **both players** are eliminated → the game **ends immediately** (no waiting for the timer)
+- If only one player is eliminated, the other keeps playing until the timer runs out
+
+---
+
+## 🏆 Scoring
+
+| Event | Points |
+|-------|--------|
 | Place a piece | +1 per cell in the piece |
-| Clear 1 line | `+10 × GRID_SIZE` |
-| Combo (multiple lines at once) | multiplied by combo count |
+| Clear 1 line | +100 |
+| Clear 2 lines at once | +200 × combo |
+| Clear 3+ lines at once | +300+ × combo |
+| Combo multiplier | Stacks each move you clear at least 1 line |
+
+After 5 minutes (or both players eliminated), scores are compared:
+- Higher score = **Winner** 🏆
+- Equal scores = **Tie** 🤝
 
 ---
 
-## ⚙️ Configuration
+## 🔄 Rematch
 
-Edit the top of `server.py` and `game.js` to tweak:
-
-| Setting | Default | Location |
-|---|---|---|
-| Port | `5001` | `server.py` |
-| Game duration | `300s (5 min)` | `server.py` / `game.js` |
-| Starting lives | `3` | `server.py` / `game.js` |
-| Board size | `10×10` | `game.js` |
+After the game ends:
+1. Either player clicks **🔄 Rematch**
+2. The other player sees a prompt and clicks **✅ Accept Rematch**
+3. Both boards reset, lives reset to 3, and a fresh 5-minute game begins
 
 ---
 
 ## 🛠️ Tech Stack
 
 | Layer | Technology |
-|---|---|
-| Backend | Python, Flask, Flask-SocketIO |
-| Frontend | Vanilla JavaScript, HTML5 Canvas |
-| Styling | CSS3 (Orbitron + Rajdhani fonts) |
-| Realtime | Socket.IO (threading async mode) |
+|-------|-----------|
+| Frontend | HTML5, CSS3, JavaScript, Canvas API |
+| Backend | Python, Flask |
+| Real-time | Flask-SocketIO (threading mode) |
+| WebSocket | simple-websocket |
 
 ---
 
-## 📝 Notes
+## ❓ Troubleshooting
 
-- No database or authentication — fully in-memory, resets on server restart
-- Works best on **Python 3.10–3.13**; Python 3.14+ on Windows may have a `socket.getfqdn()` bug
-- Designed for **LAN play** — not recommended to expose on public internet without added security
+| Problem | Fix |
+|---------|-----|
+| `WinError 10048` (port in use) | Server uses port **5001**. If still blocked, run `netstat -ano \| findstr :5001` then `taskkill /PID <number> /F` |
+| `game.js 404` error | Make sure `game.js` is in `static/game.js` (not `game (1).js`) |
+| Can't create/join room | You opened the HTML file directly. Use `http://localhost:5001` instead |
+| Player 2 can't connect | Check firewall — allow port 5001. Confirm both are on same network |
+| Rescue panel doesn't respond | Update `style.css` — old versions had a `pointer-events` bug on the panel |
 
 ---
 
-## 📄 License
+## 📜 License
 
-MIT — free to use, modify, and share.
+Free to use and modify for personal and educational projects.
