@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BlockBlast Multiplayer</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+
+  <!-- ══════════ LOBBY ══════════ -->
+  <div id="screen-lobby" class="screen active">
+    <div class="lobby-card">
+      <div class="logo">
+        <span class="logo-block b1">B</span>
+        <span class="logo-block b2">L</span>
+        <span class="logo-block b3">O</span>
+        <span class="logo-block b4">C</span>
+        <span class="logo-block b5">K</span>
+        <span class="logo-word">BLAST</span>
+      </div>
+      <p class="lobby-sub">2-Player Puzzle Battle</p>
+      <div class="lobby-form">
+        <input id="input-name" type="text" placeholder="Your name" maxlength="16" autocomplete="off" />
+        <div class="lobby-buttons">
+          <button id="btn-create" class="btn btn-primary"><span class="btn-icon">🏠</span> Create Room</button>
+          <div class="lobby-divider">— or —</div>
+          <div class="join-row">
+            <input id="input-code" type="text" placeholder="Room code" maxlength="6" autocomplete="off" />
+            <button id="btn-join" class="btn btn-secondary"><span class="btn-icon">🔗</span> Join</button>
+          </div>
+        </div>
+      </div>
+      <div id="lobby-status" class="lobby-status"></div>
+    </div>
+  </div>
+
+  <!-- ══════════ WAITING ROOM ══════════ -->
+  <div id="screen-waiting" class="screen">
+    <div class="waiting-card">
+      <h2>Waiting for Opponent…</h2>
+      <div class="room-code-display">
+        <span class="room-code-label">Room Code</span>
+        <span id="display-room-code" class="room-code-value">——</span>
+        <button id="btn-copy-code" class="btn btn-small">📋 Copy</button>
+      </div>
+      <p class="waiting-hint">Share this code with your opponent.<br/>They'll connect on the same network.</p>
+      <div class="waiting-spinner">
+        <div class="spinner-dot"></div><div class="spinner-dot"></div><div class="spinner-dot"></div>
+      </div>
+      <div id="waiting-status" class="waiting-status"></div>
+      <button id="btn-start-game" class="btn btn-primary" style="display:none;margin-top:24px;">▶ Start Game</button>
+    </div>
+  </div>
+
+  <!-- ══════════ GAME SCREEN ══════════ -->
+  <div id="screen-game" class="screen">
+
+    <!-- HUD -->
+    <div class="hud">
+      <div class="hud-player">
+        <div class="hud-label">YOU</div>
+        <div id="hud-my-name" class="hud-name">Player A</div>
+        <div id="hud-my-score" class="hud-score">0</div>
+        <div id="lives-my" class="lives-row">♥♥♥</div>
+      </div>
+      <div class="hud-center">
+        <div class="hud-timer-label">TIME</div>
+        <div id="hud-timer" class="hud-timer">5:00</div>
+      </div>
+      <div class="hud-player hud-opponent">
+        <div class="hud-label">OPPONENT</div>
+        <div id="hud-opp-name" class="hud-name">Player B</div>
+        <div id="hud-opp-score" class="hud-score">0</div>
+        <div id="lives-opp" class="lives-row opp">♥♥♥</div>
+      </div>
+    </div>
+
+    <!-- Game area -->
+    <div class="game-area">
+
+      <!-- Piece tray -->
+      <div class="piece-tray" id="piece-tray">
+        <div class="tray-label">NEXT PIECES</div>
+        <canvas id="canvas-piece-0" class="piece-canvas" width="120" height="120"></canvas>
+        <canvas id="canvas-piece-1" class="piece-canvas" width="120" height="120"></canvas>
+        <canvas id="canvas-piece-2" class="piece-canvas" width="120" height="120"></canvas>
+      </div>
+
+      <!-- Board + overlays -->
+      <div class="board-wrapper">
+        <canvas id="canvas-board" width="400" height="400"></canvas>
+
+        <!-- Rescue panel — shown when stuck -->
+        <div id="rescue-panel" class="rescue-panel hidden">
+          <div class="rescue-title">⚠️ NO MOVES LEFT!</div>
+          <div class="rescue-desc">Spend a life to clear a row or column</div>
+          <div class="rescue-lives-left">Lives remaining: <span id="rescue-lives-count">3</span></div>
+          <div class="rescue-toggle">
+            <button id="rescue-row-btn" class="btn rescue-btn active">Clear ROW</button>
+            <button id="rescue-col-btn" class="btn rescue-btn">Clear COL</button>
+          </div>
+          <div class="rescue-hint">Hover &amp; click the board to choose</div>
+        </div>
+
+        <!-- Game over / message overlay -->
+        <div id="game-overlay" class="game-overlay hidden">
+          <div class="overlay-content">
+            <div id="overlay-title" class="overlay-title">Game Over</div>
+            <div id="overlay-body" class="overlay-body"></div>
+            <div class="overlay-buttons">
+              <button id="btn-rematch" class="btn btn-primary">🔄 Rematch</button>
+              <button id="btn-lobby" class="btn btn-secondary">🏠 Lobby</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Side panel -->
+      <div class="side-panel">
+        <div class="panel-block">
+          <div class="panel-label">SCORE</div>
+          <div id="panel-score" class="panel-value">0</div>
+        </div>
+        <div class="panel-block">
+          <div class="panel-label">BEST COMBO</div>
+          <div id="panel-combo" class="panel-value">0</div>
+        </div>
+        <div class="panel-block">
+          <div class="panel-label">LINES</div>
+          <div id="panel-lines" class="panel-value">0</div>
+        </div>
+        <div class="panel-block how-to">
+          <div class="panel-label">HOW TO PLAY</div>
+          <ul class="tips">
+            <li>Click a piece to select</li>
+            <li>Click board to place</li>
+            <li>Fill rows/cols to score</li>
+            <li>Use ♥ lives to rescue!</li>
+            <li>Both eliminated = game ends</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="/static/game.js"></script>
+</body>
+</html>
