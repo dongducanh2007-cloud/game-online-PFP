@@ -1,10 +1,16 @@
 """
-BlockBlast Multiplayer Server
-=============================
-Manages rooms, syncs timers, and broadcasts game state to all players.
-Run with: python server.py
+BlockBlast Multiplayer — server.py
+====================================
+Flask + Flask-SocketIO backend.
+Run with:  python server.py
+Open in browser:  http://localhost:5001
 
-NOTE: Uses threading mode (not eventlet) for broad Python 3.12+ compatibility.
+Lives system:
+  - Each player starts with 3 lives
+  - When stuck, player spends 1 life to clear a row/col (rescue)
+  - When a player hits 0 lives and is still stuck → eliminated
+  - When BOTH players are eliminated → game ends immediately
+  - Otherwise the 5-minute timer ends the game
 """
 
 from flask import Flask, render_template, request
@@ -15,430 +21,325 @@ import random
 import string
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'blockblast_secret_2024'
+app.config['SECRET_KEY'] = 'blockblast_2024'
 
-# Use threading mode — works on all platforms without eventlet monkey-patching issues
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+# threading async_mode — compatible with Python 3.12+ (no eventlet needed)
+socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
 
 # ─────────────────────────────────────────────
-#  In-memory game state
+#  In-memory rooms store
+#
+#  rooms[code] = {
+#    'players': {
+#      sid: {
+#        'name': str, 'role': 'A'|'B',
+#        'score': int, 'lives': int,
+#        'eliminated': bool
+#      }
+#    },
+#    'started':  bool,
+#    'time_left': int,   # seconds
+#    'game_over': bool,
+#  }
 # ─────────────────────────────────────────────
 rooms = {}
-# rooms[code] = {
-#   'players': { sid: { 'name': str, 'role': 'A'|'B', 'score': int } },
-#   'started': bool,
-#   'time_left': int,       # seconds remaining
-#   'timer_thread': Thread,
-#   'game_over': bool,
-# }
 
 
-# ─────────────────────────────────────────────
-#  Helpers
-# ─────────────────────────────────────────────
+# ─── Helpers ──────────────────────────────────
 
-def generate_room_code():
-    """Generate a short 6-character alphanumeric room code."""
+def make_room_code():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
 
-def get_room_for_player(sid):
-    """Return the room code that a given socket ID belongs to."""
+def room_of(sid):
     for code, room in rooms.items():
         if sid in room['players']:
             return code
     return None
 
 
-def timer_loop(room_code):
-    """
-    Background thread that counts down 300 seconds (5 minutes).
-    Broadcasts 'timer_tick' every second.
-    At 0, broadcasts 'game_over' with final scores.
-    """
-    while True:
-        time.sleep(1)  # wait 1 second
+def fresh_player(name, role):
+    return {
+        'name': name, 'role': role,
+        'score': 0, 'lives': 3, 'eliminated': False
+    }
 
-        room = rooms.get(room_code)
+
+def reset_players(room):
+    for p in room['players'].values():
+        p['score']      = 0
+        p['lives']      = 3
+        p['eliminated'] = False
+
+
+def end_game(code):
+    """Determine winner and fire game_over to everyone in the room."""
+    room = rooms.get(code)
+    if not room:
+        return
+
+    scores = {
+        p['role']: {'score': p['score'], 'name': p['name']}
+        for p in room['players'].values()
+    }
+    sa = scores.get('A', {}).get('score', 0)
+    sb = scores.get('B', {}).get('score', 0)
+
+    if sa > sb:   winner = 'A'
+    elif sb > sa: winner = 'B'
+    else:         winner = 'TIE'
+
+    socketio.emit('game_over', {'scores': scores, 'winner': winner}, room=code)
+    print(f'[=] Game over in room {code} — winner: {winner}  (A:{sa} B:{sb})')
+
+
+def timer_loop(code):
+    """Countdown thread — ticks every second, fires game_over at 0."""
+    while True:
+        time.sleep(1)
+        room = rooms.get(code)
         if not room or room['game_over']:
             break
 
         room['time_left'] -= 1
-
-        # Broadcast remaining time to everyone in the room
-        socketio.emit('timer_tick', {'time_left': room['time_left']}, room=room_code)
+        socketio.emit('timer_tick', {'time_left': room['time_left']}, room=code)
 
         if room['time_left'] <= 0:
             room['game_over'] = True
-            # Collect final scores and determine winner
-            _end_game(room_code)
+            end_game(code)
             break
 
 
-def _end_game(room_code):
-    """Determine winner and broadcast game_over event."""
-    room = rooms.get(room_code)
-    if not room:
-        return
-
-    players = room['players']
-    scores = {data['role']: {'score': data['score'], 'name': data['name']}
-              for data in players.values()}
-
-    # Determine winner
-    score_a = scores.get('A', {}).get('score', 0)
-    score_b = scores.get('B', {}).get('score', 0)
-
-    if score_a > score_b:
-        winner = 'A'
-    elif score_b > score_a:
-        winner = 'B'
-    else:
-        winner = 'TIE'
-
-    socketio.emit('game_over', {
-        'scores': scores,
-        'winner': winner
-    }, room=room_code)
+def start_timer(code):
+    t = threading.Thread(target=timer_loop, args=(code,), daemon=True)
+    t.start()
 
 
-# ─────────────────────────────────────────────
-#  HTTP Routes
-# ─────────────────────────────────────────────
+# ─── HTTP ─────────────────────────────────────
 
 @app.route('/')
 def index():
-    """Serve the main game page."""
     return render_template('index.html')
 
 
-# ─────────────────────────────────────────────
-#  SocketIO Events
-# ─────────────────────────────────────────────
+# ─── SocketIO events ──────────────────────────
 
 @socketio.on('connect')
 def on_connect():
-    print(f'[+] Client connected: {request.sid}')
+    print(f'[+] {request.sid} connected')
 
 
 @socketio.on('disconnect')
 def on_disconnect():
-    sid = request.sid
-    room_code = get_room_for_player(sid)
-    if room_code:
-        room = rooms[room_code]
-        player_name = room['players'][sid]['name']
-        del room['players'][sid]
+    sid  = request.sid
+    code = room_of(sid)
+    if not code:
+        return
 
-        # Notify remaining players
-        emit('opponent_left', {'message': f'{player_name} disconnected.'}, room=room_code)
-        leave_room(room_code)
+    room = rooms[code]
+    name = room['players'][sid]['name']
+    del room['players'][sid]
 
-        # Clean up empty rooms
-        if len(room['players']) == 0:
-            room['game_over'] = True  # stop timer thread
-            del rooms[room_code]
-            print(f'[~] Room {room_code} deleted (empty)')
+    socketio.emit('opponent_left', {'message': f'{name} disconnected.'}, room=code)
+    leave_room(code)
 
-    print(f'[-] Client disconnected: {request.sid}')
+    if not room['players']:          # last player left — clean up
+        room['game_over'] = True
+        del rooms[code]
+        print(f'[~] Room {code} removed (empty)')
+
+    print(f'[-] {sid} ({name}) disconnected')
 
 
 @socketio.on('create_room')
 def on_create_room(data):
-    """
-    Player 1 creates a room.
-    data = { 'player_name': str }
-    """
-    sid = request.sid
+    sid  = request.sid
     name = data.get('player_name', 'Player A')
 
-    # Generate unique code
-    code = generate_room_code()
+    code = make_room_code()
     while code in rooms:
-        code = generate_room_code()
+        code = make_room_code()
 
     rooms[code] = {
-        'players': {
-            sid: {'name': name, 'role': 'A', 'score': 0, 'lives': 3, 'dead': False}
-        },
-        'started': False,
+        'players':   {sid: fresh_player(name, 'A')},
+        'started':   False,
         'time_left': 300,
-        'timer_thread': None,
         'game_over': False,
     }
-
     join_room(code)
     emit('room_created', {'room_code': code, 'role': 'A', 'player_name': name})
-    print(f'[+] Room {code} created by {name} ({sid})')
+    print(f'[+] Room {code} created by {name}')
 
 
 @socketio.on('join_room_request')
 def on_join_room(data):
-    """
-    Player 2 joins an existing room.
-    data = { 'room_code': str, 'player_name': str }
-    """
-    sid = request.sid
+    sid  = request.sid
     code = data.get('room_code', '').strip().upper()
     name = data.get('player_name', 'Player B')
 
     if code not in rooms:
-        emit('join_error', {'message': 'Room not found. Check the code and try again.'})
+        emit('join_error', {'message': 'Room not found.'})
         return
-
     room = rooms[code]
-
     if len(room['players']) >= 2:
         emit('join_error', {'message': 'Room is full.'})
         return
-
     if room['started']:
-        emit('join_error', {'message': 'Game already in progress.'})
+        emit('join_error', {'message': 'Game already started.'})
         return
 
-    room['players'][sid] = {'name': name, 'role': 'B', 'score': 0, 'lives': 3, 'dead': False}
+    room['players'][sid] = fresh_player(name, 'B')
     join_room(code)
-
-    # Tell Player B their info
     emit('room_joined', {'room_code': code, 'role': 'B', 'player_name': name})
 
-    # Tell everyone the room is now ready (2 players)
-    player_list = {data['role']: data['name'] for data in room['players'].values()}
-    socketio.emit('room_ready', {'players': player_list}, room=code)
-
-    print(f'[+] {name} ({sid}) joined room {code}')
+    player_names = {p['role']: p['name'] for p in room['players'].values()}
+    socketio.emit('room_ready', {'players': player_names}, room=code)
+    print(f'[+] {name} joined room {code}')
 
 
 @socketio.on('start_game')
 def on_start_game(data):
-    """
-    Either player can trigger game start (once room is ready).
-    data = { 'room_code': str }
-    """
     code = data.get('room_code', '')
     room = rooms.get(code)
 
     if not room or len(room['players']) < 2:
         emit('error', {'message': 'Need 2 players to start.'})
         return
-
     if room['started']:
-        return  # already started
+        return
 
-    room['started'] = True
+    room['started']   = True
     room['time_left'] = 300
     room['game_over'] = False
+    reset_players(room)
 
-    # Reset scores and lives
-    for p in room['players'].values():
-        p['score']      = 0
-        p['lives']      = 3
-        p['dead']       = False
-        p['eliminated'] = False
-
-    # Broadcast game start
     socketio.emit('game_started', {'time_left': 300}, room=code)
-
-    # Launch the countdown timer in a background thread
-    t = threading.Thread(target=timer_loop, args=(code,), daemon=True)
-    t.start()
-    room['timer_thread'] = t
-
+    start_timer(code)
     print(f'[>] Game started in room {code}')
 
 
 @socketio.on('score_update')
 def on_score_update(data):
-    """
-    Called when a player clears lines and earns points.
-    data = { 'room_code': str, 'score': int }
-    Broadcasts updated score to opponent.
-    """
-    sid = request.sid
+    """Player reports their new cumulative score."""
+    sid  = request.sid
     code = data.get('room_code', '')
-    new_score = data.get('score', 0)
-
     room = rooms.get(code)
     if not room or sid not in room['players']:
         return
 
-    room['players'][sid]['score'] = new_score
+    room['players'][sid]['score'] = data.get('score', 0)
     role = room['players'][sid]['role']
-
-    # Tell everyone in the room about the score change
     socketio.emit('opponent_score', {
-        'role': role,
-        'score': new_score,
-        'name': room['players'][sid]['name']
+        'role':  role,
+        'score': room['players'][sid]['score'],
+        'name':  room['players'][sid]['name'],
+    }, room=code)
+
+
+@socketio.on('board_update')
+def on_board_update(data):
+    """
+    Player sends their full board state after every move.
+    Server broadcasts it to the opponent as a live mirror.
+    data = { 'room_code': str, 'board': [[...]], 'lines_cleared': int }
+    """
+    sid  = request.sid
+    code = data.get('room_code', '')
+    room = rooms.get(code)
+    if not room or sid not in room['players']:
+        return
+    role = room['players'][sid]['role']
+    # Relay to everyone in the room (opponent will filter by role)
+    socketio.emit('opponent_board', {
+        'role':          role,
+        'board':         data.get('board', []),
+        'lines_cleared': data.get('lines_cleared', 0),
     }, room=code)
 
 
 @socketio.on('lives_update')
 def on_lives_update(data):
-    """
-    Called when a player uses a rescue (spends a life).
-    data = { 'room_code': str, 'lives': int }
-    """
-    sid = request.sid
+    """Player used a rescue — broadcast updated life count to opponent."""
+    sid  = request.sid
     code = data.get('room_code', '')
-    lives = data.get('lives', 0)
     room = rooms.get(code)
     if not room or sid not in room['players']:
         return
+
+    lives = data.get('lives', 0)
     room['players'][sid]['lives'] = lives
-    role = room['players'][sid]['role']
+    role  = room['players'][sid]['role']
     socketio.emit('opponent_lives', {'role': role, 'lives': lives}, room=code)
+    print(f'[♥] Player {role} used rescue — lives left: {lives}')
 
 
 @socketio.on('player_eliminated')
 def on_player_eliminated(data):
     """
-    Called when a player runs out of lives and valid moves.
+    Player has 0 lives and no valid moves — they're eliminated.
     If BOTH players are eliminated, end the game immediately.
-    data = { 'room_code': str, 'score': int }
     """
-    sid = request.sid
+    sid  = request.sid
     code = data.get('room_code', '')
-    final_score = data.get('score', 0)
     room = rooms.get(code)
     if not room or sid not in room['players']:
         return
 
     room['players'][sid]['eliminated'] = True
-    room['players'][sid]['score'] = final_score
+    room['players'][sid]['lives']      = 0
+    room['players'][sid]['score']      = data.get('score', 0)
     role = room['players'][sid]['role']
 
-    # Tell the other player their opponent is out
+    print(f'[💀] Player {role} eliminated in room {code}')
     socketio.emit('opponent_eliminated', {'role': role}, room=code)
 
-    # If ALL players eliminated → instant game over
-    all_out = all(p.get('eliminated', False) for p in room['players'].values())
-    if all_out and not room['game_over']:
-        room['game_over'] = True
-        _end_game(code)
-        print(f'[!] Both players eliminated in room {code} — ending early')
+    # Both out? End game now without waiting for timer
+    if all(p['eliminated'] for p in room['players'].values()):
+        if not room['game_over']:
+            room['game_over'] = True
+            end_game(code)
+            print(f'[!] Both eliminated in {code} — instant game over')
 
 
 @socketio.on('request_restart')
 def on_request_restart(data):
-    """
-    A player requests a rematch.
-    data = { 'room_code': str }
-    """
     code = data.get('room_code', '')
     room = rooms.get(code)
     if not room:
         return
-
-    sid = request.sid
-    name = room['players'].get(sid, {}).get('name', 'Someone')
-
-    # Notify the other player
+    name = room['players'].get(request.sid, {}).get('name', 'Someone')
     socketio.emit('restart_requested', {'from': name}, room=code)
 
 
 @socketio.on('confirm_restart')
 def on_confirm_restart(data):
-    """
-    Second player confirms the rematch. Resets and restarts.
-    data = { 'room_code': str }
-    """
     code = data.get('room_code', '')
     room = rooms.get(code)
     if not room:
         return
 
-    # Stop existing timer if running
-    room['game_over'] = True
-    time.sleep(0.1)
+    room['game_over'] = True          # stop old timer
+    time.sleep(0.15)
 
-    # Reset room state
-    room['started'] = True
+    room['started']   = True
     room['time_left'] = 300
     room['game_over'] = False
-    for p in room['players'].values():
-        p['score']      = 0
-        p['lives']      = 3
-        p['dead']       = False
-        p['eliminated'] = False
+    reset_players(room)
 
-    # Tell clients to reset their boards
     socketio.emit('game_restarted', {'time_left': 300}, room=code)
-
-    # Restart timer
-    t = threading.Thread(target=timer_loop, args=(code,), daemon=True)
-    t.start()
-    room['timer_thread'] = t
-
+    start_timer(code)
     print(f'[>] Game restarted in room {code}')
 
 
-@socketio.on('lives_update')
-def on_lives_update(data):
-    """
-    A player spent a life on rescue. Broadcast to opponent so their UI updates.
-    data = { 'room_code': str, 'lives': int }
-    """
-    sid = request.sid
-    code = data.get('room_code', '')
-    room = rooms.get(code)
-    if not room or sid not in room['players']:
-        return
-
-    lives = data.get('lives', 0)
-    room['players'][sid]['lives'] = lives
-    role = room['players'][sid]['role']
-
-    # Tell everyone (including sender so both UIs stay in sync)
-    socketio.emit('opponent_lives', {
-        'role': role,
-        'lives': lives,
-    }, room=code)
-
-
-@socketio.on('player_eliminated')
-def on_player_eliminated(data):
-    """
-    A player ran out of lives and moves — they are eliminated.
-    If BOTH players are now eliminated, end the game immediately.
-    data = { 'room_code': str, 'score': int }
-    """
-    sid = request.sid
-    code = data.get('room_code', '')
-    room = rooms.get(code)
-    if not room or sid not in room['players']:
-        return
-
-    # Mark player as eliminated and record final score
-    room['players'][sid]['eliminated'] = True
-    room['players'][sid]['score'] = data.get('score', 0)
-    role = room['players'][sid]['role']
-
-    print(f'[!] Player {role} eliminated in room {code}')
-
-    # Notify opponent
-    socketio.emit('opponent_eliminated', {'role': role}, room=code)
-
-    # Check if ALL players are eliminated
-    all_eliminated = all(
-        p.get('eliminated', False) for p in room['players'].values()
-    )
-    if all_eliminated and not room['game_over']:
-        print(f'[!] Both players eliminated in room {code} — ending game')
-        room['game_over'] = True
-        _end_game(code)
-
-
-# ─────────────────────────────────────────────
-#  Entry point
-# ─────────────────────────────────────────────
+# ─── Entry point ──────────────────────────────
 
 if __name__ == '__main__':
-    PORT = 5001  # Changed from 5000 — macOS/Windows often have port 5000 occupied
-    print("=" * 50)
-    print("  BlockBlast Multiplayer Server")
-    print(f"  Running on http://0.0.0.0:{PORT}")
-    print("  Share your local IP with Player 2")
-    print(f"  e.g. http://192.168.x.x:{PORT}")
-    print("=" * 50)
-    socketio.run(app, host='0.0.0.0', port=PORT, debug=False, allow_unsafe_werkzeug=True)
+    PORT = 5001
+    print('=' * 50)
+    print('  BlockBlast Multiplayer Server')
+    print(f'  http://localhost:{PORT}')
+    print(f'  (share your LAN IP for Player 2)')
+    print('=' * 50)
+    # 0.0.0.0 listens on all interfaces so LAN players can connect
+    socketio.run(app, host='0.0.0.0', port=PORT,
+                 debug=False, allow_unsafe_werkzeug=True)

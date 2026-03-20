@@ -13,21 +13,18 @@
   <div id="screen-lobby" class="screen active">
     <div class="lobby-card">
       <div class="logo">
-        <span class="logo-block b1">B</span>
-        <span class="logo-block b2">L</span>
-        <span class="logo-block b3">O</span>
-        <span class="logo-block b4">C</span>
-        <span class="logo-block b5">K</span>
-        <span class="logo-word">BLAST</span>
+        <span class="logo-block b1">B</span><span class="logo-block b2">L</span>
+        <span class="logo-block b3">O</span><span class="logo-block b4">C</span>
+        <span class="logo-block b5">K</span><span class="logo-word">BLAST</span>
       </div>
       <p class="lobby-sub">2-Player Puzzle Battle</p>
       <div class="lobby-form">
-        <input id="input-name" type="text" placeholder="Your name" maxlength="16" autocomplete="off" />
+        <input id="input-name" type="text" placeholder="Your name" maxlength="16" autocomplete="off"/>
         <div class="lobby-buttons">
           <button id="btn-create" class="btn btn-primary"><span class="btn-icon">🏠</span> Create Room</button>
           <div class="lobby-divider">— or —</div>
           <div class="join-row">
-            <input id="input-code" type="text" placeholder="Room code" maxlength="6" autocomplete="off" />
+            <input id="input-code" type="text" placeholder="Room code" maxlength="6" autocomplete="off"/>
             <button id="btn-join" class="btn btn-secondary"><span class="btn-icon">🔗</span> Join</button>
           </div>
         </div>
@@ -57,7 +54,7 @@
   <!-- ══════════ GAME SCREEN ══════════ -->
   <div id="screen-game" class="screen">
 
-    <!-- HUD -->
+    <!-- TOP HUD -->
     <div class="hud">
       <div class="hud-player">
         <div class="hud-label">YOU</div>
@@ -77,74 +74,98 @@
       </div>
     </div>
 
-    <!-- Game area -->
-    <div class="game-area">
+    <!-- SPLIT GAME AREA -->
+    <div class="split-area">
 
-      <!-- Piece tray -->
-      <div class="piece-tray" id="piece-tray">
-        <div class="tray-label">NEXT PIECES</div>
-        <canvas id="canvas-piece-0" class="piece-canvas" width="120" height="120"></canvas>
-        <canvas id="canvas-piece-1" class="piece-canvas" width="120" height="120"></canvas>
-        <canvas id="canvas-piece-2" class="piece-canvas" width="120" height="120"></canvas>
-      </div>
-
-      <!-- Board + overlays -->
-      <div class="board-wrapper">
-        <canvas id="canvas-board" width="400" height="400"></canvas>
-
-        <!-- Rescue panel — shown when stuck -->
-        <div id="rescue-panel" class="rescue-panel hidden">
-          <div class="rescue-title">⚠️ NO MOVES LEFT!</div>
-          <div class="rescue-desc">Spend a life to clear a row or column</div>
-          <div class="rescue-lives-left">Lives remaining: <span id="rescue-lives-count">3</span></div>
-          <div class="rescue-toggle">
-            <button id="rescue-row-btn" class="btn rescue-btn active">Clear ROW</button>
-            <button id="rescue-col-btn" class="btn rescue-btn">Clear COL</button>
-          </div>
-          <div class="rescue-hint">Hover &amp; click the board to choose</div>
+      <!-- ── LEFT: MY BOARD ── -->
+      <div class="player-side my-side">
+        <div class="side-header">
+          <span class="side-tag you-tag">YOU</span>
+          <span id="my-side-name" class="side-name">Player A</span>
         </div>
 
-        <!-- Game over / message overlay -->
-        <div id="game-overlay" class="game-overlay hidden">
-          <div class="overlay-content">
-            <div id="overlay-title" class="overlay-title">Game Over</div>
-            <div id="overlay-body" class="overlay-body"></div>
-            <div class="overlay-buttons">
-              <button id="btn-rematch" class="btn btn-primary">🔄 Rematch</button>
-              <button id="btn-lobby" class="btn btn-secondary">🏠 Lobby</button>
+        <div class="play-row">
+          <!-- Piece tray -->
+          <div class="piece-tray">
+            <div class="tray-label">PIECES</div>
+            <canvas id="canvas-piece-0" class="piece-canvas" width="100" height="100"></canvas>
+            <canvas id="canvas-piece-1" class="piece-canvas" width="100" height="100"></canvas>
+            <canvas id="canvas-piece-2" class="piece-canvas" width="100" height="100"></canvas>
+          </div>
+
+          <!-- My board + overlays -->
+          <div class="board-wrapper">
+            <canvas id="canvas-board" width="340" height="340"></canvas>
+
+            <!-- Rescue panel -->
+            <div id="rescue-panel" class="rescue-panel hidden">
+              <div class="rescue-title">⚠️ NO MOVES!</div>
+              <div class="rescue-desc">Spend a life to clear a line</div>
+              <div class="rescue-lives-left">Lives: <span id="rescue-lives-count">3</span></div>
+              <div class="rescue-toggle">
+                <button id="rescue-row-btn" class="btn rescue-btn active">ROW</button>
+                <button id="rescue-col-btn" class="btn rescue-btn">COL</button>
+              </div>
+              <div class="rescue-hint">Hover &amp; click board</div>
+            </div>
+
+            <!-- Game over overlay -->
+            <div id="game-overlay" class="game-overlay hidden">
+              <div class="overlay-content">
+                <div id="overlay-title" class="overlay-title">Game Over</div>
+                <div id="overlay-body" class="overlay-body"></div>
+                <div class="overlay-buttons">
+                  <button id="btn-rematch" class="btn btn-primary">🔄 Rematch</button>
+                  <button id="btn-lobby" class="btn btn-secondary">🏠 Lobby</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Side panel -->
-      <div class="side-panel">
-        <div class="panel-block">
-          <div class="panel-label">SCORE</div>
-          <div id="panel-score" class="panel-value">0</div>
-        </div>
-        <div class="panel-block">
-          <div class="panel-label">BEST COMBO</div>
-          <div id="panel-combo" class="panel-value">0</div>
-        </div>
-        <div class="panel-block">
-          <div class="panel-label">LINES</div>
-          <div id="panel-lines" class="panel-value">0</div>
-        </div>
-        <div class="panel-block how-to">
-          <div class="panel-label">HOW TO PLAY</div>
-          <ul class="tips">
-            <li>Click a piece to select</li>
-            <li>Click board to place</li>
-            <li>Fill rows/cols to score</li>
-            <li>Use ♥ lives to rescue!</li>
-            <li>Both eliminated = game ends</li>
-          </ul>
+        <!-- My stats bar -->
+        <div class="stats-bar">
+          <div class="stat-item"><div class="stat-label">SCORE</div><div id="panel-score" class="stat-value">0</div></div>
+          <div class="stat-item"><div class="stat-label">COMBO</div><div id="panel-combo" class="stat-value">0</div></div>
+          <div class="stat-item"><div class="stat-label">LINES</div><div id="panel-lines" class="stat-value">0</div></div>
         </div>
       </div>
 
-    </div>
-  </div>
+      <!-- ── DIVIDER ── -->
+      <div class="vs-divider">
+        <div class="vs-line"></div>
+        <div class="vs-badge">VS</div>
+        <div class="vs-line"></div>
+      </div>
+
+      <!-- ── RIGHT: OPPONENT BOARD ── -->
+      <div class="player-side opp-side">
+        <div class="side-header">
+          <span class="side-tag opp-tag">OPP</span>
+          <span id="opp-side-name" class="side-name">Waiting…</span>
+        </div>
+
+        <div class="play-row opp-play-row">
+          <!-- Opponent board (read-only mirror) -->
+          <div class="board-wrapper">
+            <canvas id="canvas-opp-board" width="340" height="340"></canvas>
+            <!-- Eliminated overlay on opp board -->
+            <div id="opp-eliminated-overlay" class="opp-elim-overlay hidden">
+              <div class="opp-elim-text">💀 ELIMINATED</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Opponent stats bar -->
+        <div class="stats-bar opp-stats">
+          <div class="stat-item"><div class="stat-label">SCORE</div><div id="opp-panel-score" class="stat-value opp-val">0</div></div>
+          <div class="stat-item"><div class="stat-label">LINES</div><div id="opp-panel-lines" class="stat-value opp-val">0</div></div>
+          <div class="stat-item"><div class="stat-label">STATUS</div><div id="opp-status-text" class="stat-value opp-val" style="font-size:13px">Playing</div></div>
+        </div>
+      </div>
+
+    </div><!-- end split-area -->
+  </div><!-- end screen-game -->
 
   <script src="/static/game.js"></script>
 </body>
